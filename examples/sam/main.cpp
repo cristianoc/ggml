@@ -669,30 +669,35 @@ bool sam_encode(
             cur = ggml_reshape_4d(ctx0, cur, n_enc_state, 3, n_window_size*n_window_size, B);
             cur = ggml_cont(ctx0, ggml_permute(ctx0, cur, 0, 3, 1, 2));
 
-            struct ggml_tensor * q;
-            struct ggml_tensor * k;
-            struct ggml_tensor * v;
+            struct ggml_tensor * Q;
+            struct ggml_tensor * K;
+            struct ggml_tensor * V;
 
-            q = ggml_view_3d   (ctx0, cur, n_enc_state, n_window_size*n_window_size, B, cur->nb[1], cur->nb[2], 0*cur->nb[3]);
-            q = ggml_reshape_4d(ctx0, q,   n_enc_head_dim, n_enc_head,n_window_size*n_window_size, B);
-            q = ggml_cont      (ctx0, ggml_permute(ctx0, q, 0, 2, 1, 3));
-            q = ggml_reshape_3d(ctx0, q,   n_enc_head_dim, n_window_size*n_window_size, B*n_enc_head);
+            Q = ggml_view_3d   (ctx0, cur, n_enc_state, n_window_size*n_window_size, B, cur->nb[1], cur->nb[2], 0*cur->nb[3]);
+            Q = ggml_reshape_4d(ctx0, Q,   n_enc_head_dim, n_enc_head,n_window_size*n_window_size, B);
+            Q = ggml_cont      (ctx0, ggml_permute(ctx0, Q, 0, 2, 1, 3));
+            Q = ggml_reshape_3d(ctx0, Q,   n_enc_head_dim, n_window_size*n_window_size, B*n_enc_head);
 
-            k = ggml_view_3d   (ctx0, cur, n_enc_state, n_window_size*n_window_size, B, cur->nb[1], cur->nb[2], 1*cur->nb[3]);
-            k = ggml_reshape_4d(ctx0, k,   n_enc_head_dim, n_enc_head,n_window_size*n_window_size, B);
-            k = ggml_cont      (ctx0, ggml_permute(ctx0, k, 0, 2, 1, 3));
-            k = ggml_reshape_3d(ctx0, k,   n_enc_head_dim, n_window_size*n_window_size, B*n_enc_head);
+            K = ggml_view_3d   (ctx0, cur, n_enc_state, n_window_size*n_window_size, B, cur->nb[1], cur->nb[2], 1*cur->nb[3]);
+            K = ggml_reshape_4d(ctx0, K,   n_enc_head_dim, n_enc_head,n_window_size*n_window_size, B);
+            K = ggml_cont      (ctx0, ggml_permute(ctx0, K, 0, 2, 1, 3));
+            K = ggml_reshape_3d(ctx0, K,   n_enc_head_dim, n_window_size*n_window_size, B*n_enc_head);
 
-            v = ggml_view_3d   (ctx0, cur, n_enc_state, n_window_size*n_window_size, B, cur->nb[1], cur->nb[2], 2*cur->nb[3]);
-            v = ggml_reshape_4d(ctx0, v,   n_enc_head_dim, n_enc_head,n_window_size*n_window_size, B);
-            v = ggml_cont      (ctx0, ggml_permute(ctx0, v, 0, 2, 1, 3));
-            v = ggml_reshape_3d(ctx0, v,   n_enc_head_dim, n_window_size*n_window_size, B*n_enc_head);
+            V = ggml_view_3d   (ctx0, cur, n_enc_state, n_window_size*n_window_size, B, cur->nb[1], cur->nb[2], 2*cur->nb[3]);
+            V = ggml_reshape_4d(ctx0, V,   n_enc_head_dim, n_enc_head,n_window_size*n_window_size, B);
+            V = ggml_cont      (ctx0, ggml_permute(ctx0, V, 0, 2, 1, 3));
+            V = ggml_reshape_3d(ctx0, V,   n_enc_head_dim, n_window_size*n_window_size, B*n_enc_head);
 
-            ggml_build_forward_expand(&gf, q);
-            ggml_build_forward_expand(&gf, k);
-            ggml_build_forward_expand(&gf, v);
+            struct ggml_tensor * KQ = ggml_mul_mat(ctx0, K, Q);
 
-            ggml_set_name(v, "check");
+            struct ggml_tensor * KQ_scaled =
+                ggml_scale_inplace(ctx0,
+                        KQ,
+                        ggml_new_f32(ctx0, 1.0f/sqrtf(n_enc_head_dim))
+                        );
+
+            ggml_build_forward_expand(&gf, KQ_scaled);
+            ggml_set_name(KQ_scaled, "check");
         }
 
         if (hparams.is_global_attn(il) == false) {
@@ -730,7 +735,7 @@ bool sam_encode(
             //printf("\n");
             for (int y = 0; y < 14; ++y) {
                 for (int x = 0; x < 14; ++x) {
-                    printf("%7.4f ", data[(y*196 + x)*64 + 23]);
+                    printf("%7.4f ", data[(y*196 + x)*196 + 23]);
                 }
                 printf("\n");
             }
