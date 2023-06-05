@@ -564,6 +564,7 @@ bool sam_encode(
 
     const int32_t n_enc_state     = hparams.n_enc_state;
     const int32_t n_enc_layer     = hparams.n_enc_layer;
+    const int32_t n_enc_head      = hparams.n_enc_head;
     const int32_t n_enc_head_dim  = hparams.n_enc_head_dim();
     const int32_t n_enc_out_chans = hparams.n_enc_out_chans;
 
@@ -661,7 +662,37 @@ bool sam_encode(
                         cur),
                     cur);
 
-            ggml_set_name(cur, "check");
+            // split qkv into separate tensors
+            // ref: https://github.com/facebookresearch/segment-anything/blob/main/segment_anything/modeling/image_encoder.py#L225-L229
+            const int B = cur->ne[3];
+
+            cur = ggml_reshape_4d(ctx0, cur, n_enc_state, 3, n_window_size*n_window_size, B);
+            cur = ggml_cont(ctx0, ggml_permute(ctx0, cur, 0, 3, 1, 2));
+
+            struct ggml_tensor * q;
+            struct ggml_tensor * k;
+            struct ggml_tensor * v;
+
+            q = ggml_view_3d   (ctx0, cur, n_enc_state, n_window_size*n_window_size, B, cur->nb[1], cur->nb[2], 0*cur->nb[3]);
+            q = ggml_reshape_4d(ctx0, q,   n_enc_head_dim, n_enc_head,n_window_size*n_window_size, B);
+            q = ggml_cont      (ctx0, ggml_permute(ctx0, q, 0, 2, 1, 3));
+            q = ggml_reshape_3d(ctx0, q,   n_enc_head_dim, n_window_size*n_window_size, B*n_enc_head);
+
+            k = ggml_view_3d   (ctx0, cur, n_enc_state, n_window_size*n_window_size, B, cur->nb[1], cur->nb[2], 1*cur->nb[3]);
+            k = ggml_reshape_4d(ctx0, k,   n_enc_head_dim, n_enc_head,n_window_size*n_window_size, B);
+            k = ggml_cont      (ctx0, ggml_permute(ctx0, k, 0, 2, 1, 3));
+            k = ggml_reshape_3d(ctx0, k,   n_enc_head_dim, n_window_size*n_window_size, B*n_enc_head);
+
+            v = ggml_view_3d   (ctx0, cur, n_enc_state, n_window_size*n_window_size, B, cur->nb[1], cur->nb[2], 2*cur->nb[3]);
+            v = ggml_reshape_4d(ctx0, v,   n_enc_head_dim, n_enc_head,n_window_size*n_window_size, B);
+            v = ggml_cont      (ctx0, ggml_permute(ctx0, v, 0, 2, 1, 3));
+            v = ggml_reshape_3d(ctx0, v,   n_enc_head_dim, n_window_size*n_window_size, B*n_enc_head);
+
+            ggml_build_forward_expand(&gf, q);
+            ggml_build_forward_expand(&gf, k);
+            ggml_build_forward_expand(&gf, v);
+
+            ggml_set_name(v, "check");
         }
 
         if (hparams.is_global_attn(il) == false) {
@@ -684,7 +715,7 @@ bool sam_encode(
     {
         auto print_t_f32 = [&](struct ggml_tensor * t) {
             float * data = (float *)t->data;
-            printf("dims: %jd %jd %jd %jd\n", t->ne[0], t->ne[1], t->ne[2], t->ne[3]);
+            printf("dims: %jd %jd %jd %jd f32\n", t->ne[0], t->ne[1], t->ne[2], t->ne[3]);
             printf("data: ");
             for (int i = 0; i < std::min((int) t->ne[0], 10); i++) {
                 printf("%f ", data[i]);
@@ -699,7 +730,7 @@ bool sam_encode(
             //printf("\n");
             for (int y = 0; y < 14; ++y) {
                 for (int x = 0; x < 14; ++x) {
-                    printf("%7.4f ", data[(y*14 + x)*2304 + 231]);
+                    printf("%7.4f ", data[(y*196 + x)*64 + 23]);
                 }
                 printf("\n");
             }
@@ -716,11 +747,12 @@ bool sam_encode(
                 sum += data[i];
             }
             printf("sum:  %f\n", sum);
+            exit(0);
         };
 
         auto print_t_f16 = [&](struct ggml_tensor * t) {
             ggml_fp16_t * data = (ggml_fp16_t *)t->data;
-            printf("dims: %jd %jd %jd %jd\n", t->ne[0], t->ne[1], t->ne[2], t->ne[3]);
+            printf("dims: %jd %jd %jd %jd f16\n", t->ne[0], t->ne[1], t->ne[2], t->ne[3]);
             printf("data: ");
             for (int i = 0; i < std::min((int) t->ne[0], 10); i++) {
                 printf("%f ", ggml_fp16_to_fp32(data[i]));
