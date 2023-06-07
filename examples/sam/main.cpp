@@ -674,17 +674,17 @@ bool sam_encode(
             struct ggml_tensor * V;
 
             Q = ggml_view_3d   (ctx0, cur, n_enc_state, n_window_size*n_window_size, B, cur->nb[1], cur->nb[2], 0*cur->nb[3]);
-            Q = ggml_reshape_4d(ctx0, Q,   n_enc_head_dim, n_enc_head,n_window_size*n_window_size, B);
+            Q = ggml_reshape_4d(ctx0, Q,   n_enc_head_dim, n_enc_head, n_window_size*n_window_size, B);
             Q = ggml_cont      (ctx0, ggml_permute(ctx0, Q, 0, 2, 1, 3));
             Q = ggml_reshape_3d(ctx0, Q,   n_enc_head_dim, n_window_size*n_window_size, B*n_enc_head);
 
             K = ggml_view_3d   (ctx0, cur, n_enc_state, n_window_size*n_window_size, B, cur->nb[1], cur->nb[2], 1*cur->nb[3]);
-            K = ggml_reshape_4d(ctx0, K,   n_enc_head_dim, n_enc_head,n_window_size*n_window_size, B);
+            K = ggml_reshape_4d(ctx0, K,   n_enc_head_dim, n_enc_head, n_window_size*n_window_size, B);
             K = ggml_cont      (ctx0, ggml_permute(ctx0, K, 0, 2, 1, 3));
             K = ggml_reshape_3d(ctx0, K,   n_enc_head_dim, n_window_size*n_window_size, B*n_enc_head);
 
             V = ggml_view_3d   (ctx0, cur, n_enc_state, n_window_size*n_window_size, B, cur->nb[1], cur->nb[2], 2*cur->nb[3]);
-            V = ggml_reshape_4d(ctx0, V,   n_enc_head_dim, n_enc_head,n_window_size*n_window_size, B);
+            V = ggml_reshape_4d(ctx0, V,   n_enc_head_dim, n_enc_head, n_window_size*n_window_size, B);
             V = ggml_cont      (ctx0, ggml_permute(ctx0, V, 0, 2, 1, 3));
             V = ggml_reshape_3d(ctx0, V,   n_enc_head_dim, n_window_size*n_window_size, B*n_enc_head);
 
@@ -696,8 +696,22 @@ bool sam_encode(
                         ggml_new_f32(ctx0, 1.0f/sqrtf(n_enc_head_dim))
                         );
 
-            ggml_build_forward_expand(&gf, KQ_scaled);
-            ggml_set_name(KQ_scaled, "check");
+            struct ggml_tensor * rw = ggml_get_rel_pos(ctx0, layer.rel_pos_w, n_window_size, n_window_size);
+            struct ggml_tensor * rh = ggml_get_rel_pos(ctx0, layer.rel_pos_h, n_window_size, n_window_size);
+
+            struct ggml_tensor * q_r = ggml_reshape_4d(ctx0, Q, n_enc_head_dim, n_window_size, n_window_size, B*n_enc_head);
+
+            printf("rw:  %d %d %d %d\n", rw->ne[0],  rw->ne[1],  rw->ne[2],  rw->ne[3]);
+            printf("q_r: %d %d %d %d\n", q_r->ne[0], q_r->ne[1], q_r->ne[2], q_r->ne[3]);
+            struct ggml_tensor * rel_w = ggml_cont(ctx0, ggml_permute(ctx0,
+                        ggml_mul_mat(ctx0,
+                            rw,
+                            ggml_cont(ctx0, ggml_permute(ctx0, q_r, 0, 2, 1, 3))),
+                        0, 2, 1, 3));
+            struct ggml_tensor * rel_h = ggml_mul_mat(ctx0, rh, q_r);
+
+            ggml_build_forward_expand(&gf, rel_w);
+            ggml_set_name(rel_w, "check");
         }
 
         if (hparams.is_global_attn(il) == false) {
@@ -735,7 +749,7 @@ bool sam_encode(
             //printf("\n");
             for (int y = 0; y < 14; ++y) {
                 for (int x = 0; x < 14; ++x) {
-                    printf("%7.4f ", data[(y*196 + x)*196 + 23]);
+                    printf("%7.4f ", data[(153*14*14 + y*14 + x)*14 + 10]);
                 }
                 printf("\n");
             }
@@ -763,11 +777,19 @@ bool sam_encode(
                 printf("%f ", ggml_fp16_to_fp32(data[i]));
             }
             printf("\n");
+            for (int y = 0; y < 14; ++y) {
+                for (int x = 0; x < 14; ++x) {
+                    printf("%7.4f ", ggml_fp16_to_fp32(data[(y*14 + x)*64 + 23]));
+                }
+                printf("\n");
+            }
+            printf("\n");
             double sum = 0.0;
             for (int i = 0; i < ggml_nelements(t); i++) {
                 sum += ggml_fp16_to_fp32(data[i]);
             }
             printf("sum:  %f\n", sum);
+            exit(0);
         };
 
         auto * t = ggml_get_tensor(ctx0, "check");

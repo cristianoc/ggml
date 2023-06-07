@@ -324,6 +324,7 @@ extern "C" {
         GGML_OP_FLASH_FF,
         GGML_OP_WIN_PART,
         GGML_OP_WIN_UNPART,
+        GGML_OP_GET_REL_POS,
 
         GGML_OP_MAP_UNARY,
         GGML_OP_MAP_BINARY,
@@ -1013,6 +1014,13 @@ extern "C" {
             int                   w0,
             int                   h0,
             int                   w);
+
+    // used in sam
+    GGML_API struct ggml_tensor * ggml_get_rel_pos(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            int                   q_h,
+            int                   k_h);
 
     // Mapping operations
     typedef void (*ggml_unary_op_f32_t)(const int, float *, const float *);
